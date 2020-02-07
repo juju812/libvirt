@@ -5923,13 +5923,21 @@ qemuDomainDeviceDefValidateGraphics(const virDomainGraphicsDef *graphics,
                                     virQEMUCapsPtr qemuCaps)
 {
     bool have_egl_headless = false;
+    bool have_cgweb = false;
     size_t i;
 
     for (i = 0; i < def->ngraphics; i++) {
         if (def->graphics[i]->type == VIR_DOMAIN_GRAPHICS_TYPE_EGL_HEADLESS) {
-            have_egl_headless = true;
-            break;
+            have_egl_headless = true; 
+        } else if (def->graphics[i]->type == VIR_DOMAIN_GRAPHICS_TYPE_CGWEB) {
+            have_cgweb = true;
         }
+    }
+
+    if (have_egl_headless && have_cgweb) {
+        virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                _("graphics types 'egl-headless' and 'cgweb' are incompatible"));
+        return -1;
     }
 
     /* Only VNC and SPICE can be paired with egl-headless, the other types
@@ -5961,6 +5969,23 @@ qemuDomainDeviceDefValidateGraphics(const virDomainGraphicsDef *graphics,
             virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
                            _("multiple OpenGL displays are not supported "
                              "by QEMU"));
+            return -1;
+        }
+    }
+
+    if (have_cgweb) { 
+        if (!virQEMUCapsGet(qemuCaps, QEMU_CAPS_EGL_HEADLESS)) {
+            virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                           _("cgweb display is not supported with this "
+                             "QEMU binary"));
+            return -1;
+        }
+
+        if (graphics->type != VIR_DOMAIN_GRAPHICS_TYPE_CGWEB &&
+            graphics->type != VIR_DOMAIN_GRAPHICS_TYPE_VNC) {
+            virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                           _("graphics type 'cgweb' is only supported "
+                             "with 'vnc' graphics type"));
             return -1;
         }
     }

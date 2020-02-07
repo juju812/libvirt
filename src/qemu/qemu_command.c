@@ -8594,6 +8594,32 @@ qemuBuildGraphicsEGLHeadlessCommandLine(virQEMUDriverConfigPtr cfg ATTRIBUTE_UNU
 
 
 static int
+qemuBuildGraphicsCgwebCommandLine(virQEMUDriverConfigPtr cfg ATTRIBUTE_UNUSED,
+                                  virCommandPtr cmd,
+                                  virQEMUCapsPtr qemuCaps,
+                                 virDomainGraphicsDefPtr graphics)
+{
+    int ret = -1;
+    virBuffer opt = VIR_BUFFER_INITIALIZER;
+
+    virBufferAddLit(&opt, "cgweb");
+    virBufferAsprintf(&opt, ",deviceidx=%u", graphics->data.cgweb.deviceIdx);
+    virBufferAsprintf(&opt, ",vnc-compat=%s", graphics->data.cgweb.vncCompat ? "on" : "off")
+    
+    if (virBufferCheckError(&opt) < 0)
+        goto cleanup;
+
+    virCommandAddArg(cmd, "-display");
+    virCommandAddArgBuffer(cmd, &opt);
+
+    ret = 0;
+ cleanup:
+    virBufferFreeAndReset(&opt);
+    return ret;
+}
+
+
+static int
 qemuBuildGraphicsCommandLine(virQEMUDriverConfigPtr cfg,
                              virCommandPtr cmd,
                              virDomainDefPtr def,
@@ -8626,6 +8652,12 @@ qemuBuildGraphicsCommandLine(virQEMUDriverConfigPtr cfg,
         case VIR_DOMAIN_GRAPHICS_TYPE_EGL_HEADLESS:
             if (qemuBuildGraphicsEGLHeadlessCommandLine(cfg, cmd,
                                                         qemuCaps, graphics) < 0)
+                return -1;
+
+            break;
+        case VIR_DOMAIN_GRAPHICS_TYPE_CGWEB:
+            if (qemuBuildGraphicsCgwebCommandLine(cfg, cmd,
+                                                  qemuCaps, graphics) < 0)
                 return -1;
 
             break;
@@ -10465,6 +10497,7 @@ qemuBuildCommandLineValidate(virQEMUDriverPtr driver,
     int vnc = 0;
     int spice = 0;
     int egl_headless = 0;
+    int cgweb = 0;
 
     if (!virQEMUDriverIsPrivileged(driver)) {
         /* If we have no cgroups then we can have no tunings that
@@ -10509,6 +10542,9 @@ qemuBuildCommandLineValidate(virQEMUDriverPtr driver,
         case VIR_DOMAIN_GRAPHICS_TYPE_EGL_HEADLESS:
             ++egl_headless;
             break;
+        case VIR_DOMAIN_GRAPHICS_TYPE_CGWEB:
+            ++cgweb;
+            break;
         case VIR_DOMAIN_GRAPHICS_TYPE_RDP:
         case VIR_DOMAIN_GRAPHICS_TYPE_DESKTOP:
         case VIR_DOMAIN_GRAPHICS_TYPE_LAST:
@@ -10516,10 +10552,10 @@ qemuBuildCommandLineValidate(virQEMUDriverPtr driver,
         }
     }
 
-    if (sdl > 1 || vnc > 1 || spice > 1 || egl_headless > 1) {
+    if (sdl > 1 || vnc > 1 || spice > 1 || egl_headless > 1 || cgweb > 1) {
         virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
                        _("only 1 graphics device of each type "
-                         "(sdl, vnc, spice, headless) is supported"));
+                         "(sdl, vnc, spice, headless, cgweb) is supported"));
         return -1;
     }
 

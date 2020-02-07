@@ -778,6 +778,7 @@ VIR_ENUM_IMPL(virDomainGraphics,
               "desktop",
               "spice",
               "egl-headless",
+              "cgweb",
 );
 
 VIR_ENUM_IMPL(virDomainGraphicsListen,
@@ -1712,6 +1713,9 @@ void virDomainGraphicsDefFree(virDomainGraphicsDefPtr def)
 
     case VIR_DOMAIN_GRAPHICS_TYPE_EGL_HEADLESS:
         VIR_FREE(def->data.egl_headless.rendernode);
+        break;
+
+    case VIR_DOMAIN_GRAPHICS_TYPE_CGWEB:
         break;
 
     case VIR_DOMAIN_GRAPHICS_TYPE_LAST:
@@ -14278,6 +14282,30 @@ virDomainGraphicsDefParseXMLEGLHeadless(virDomainGraphicsDefPtr def,
 }
 
 
+static int
+virDomainGraphicsDefParseXMLCgweb(virDomainGraphicsDefPtr def,
+                                  xmlNodePtr node,
+                                  xmlXPathContextPtr ctxt)
+{
+    VIR_AUTOFREE(char *) vncCompat = virXMLPropString(cur, "vncCompat");
+    VIR_AUTOFREE(char *) deviceidx = virXMLPropString(cur, "deviceIdx");
+
+    if (STREQ_NULLABLE(vncCompat, "yes"))
+        def->data.cgweb.vncCompat = true;
+
+    if (deviceidx) {
+        if (virStrToLong_i(deviceidx, NULL, 10, &def->data.cgweb.deviceIdx) < 0) {
+            virReportError(VIR_ERR_INTERNAL_ERROR,
+                        _("cannot parse cgweb device index %s"), deviceidx);
+            return -1;
+        }
+    } else {
+        def->data.cgweb.deviceIdx = 0;
+    }
+    return 0;
+}
+
+
 virDomainGraphicsDefPtr
 virDomainGraphicsDefNew(virDomainXMLOptionPtr xmlopt)
 {
@@ -14347,6 +14375,10 @@ virDomainGraphicsDefParseXML(virDomainXMLOptionPtr xmlopt,
         break;
     case VIR_DOMAIN_GRAPHICS_TYPE_EGL_HEADLESS:
         if (virDomainGraphicsDefParseXMLEGLHeadless(def, node, ctxt) < 0)
+            goto error;
+        break;
+    case VIR_DOMAIN_GRAPHICS_TYPE_CGWEB:
+        if (virDomainGraphicsDefParseXMLCgweb(def, node, ctxt) < 0)
             goto error;
         break;
     case VIR_DOMAIN_GRAPHICS_TYPE_LAST:
@@ -26846,6 +26878,12 @@ virDomainGraphicsDefFormat(virBufferPtr buf,
                               def->data.egl_headless.rendernode);
         virBufferAddLit(buf, "/>\n");
         break;
+    case VIR_DOMAIN_GRAPHICS_TYPE_CGWEB:
+        if (def->data.cgweb.deviceIdx)
+            virBufferAsprintf(buf, " deviceIdx='%d'", def->data.cgweb.deviceIdx);
+
+        virBufferAsprintf(buf, " vncCompat='%s'", def->data.cgweb.vncCompat ? "yes" : "no");
+        break;
     case VIR_DOMAIN_GRAPHICS_TYPE_LAST:
         break;
     }
@@ -30934,6 +30972,7 @@ virDomainGraphicsDefHasOpenGL(const virDomainDef *def)
 
             continue;
         case VIR_DOMAIN_GRAPHICS_TYPE_EGL_HEADLESS:
+        case VIR_DOMAIN_GRAPHICS_TYPE_CGWEB:
             return true;
 
         case VIR_DOMAIN_GRAPHICS_TYPE_LAST:
@@ -30951,7 +30990,8 @@ virDomainGraphicsSupportsRenderNode(const virDomainGraphicsDef *graphics)
     bool ret = false;
 
     if (graphics->type == VIR_DOMAIN_GRAPHICS_TYPE_SPICE ||
-        graphics->type == VIR_DOMAIN_GRAPHICS_TYPE_EGL_HEADLESS)
+        graphics->type == VIR_DOMAIN_GRAPHICS_TYPE_EGL_HEADLESS ||
+        graphics->type == VIR_DOMAIN_GRAPHICS_TYPE_CGWEB)
         ret = true;
 
     return ret;
@@ -30971,6 +31011,7 @@ virDomainGraphicsGetRenderNode(const virDomainGraphicsDef *graphics)
         ret = graphics->data.egl_headless.rendernode;
         break;
     case VIR_DOMAIN_GRAPHICS_TYPE_SDL:
+    case VIR_DOMAIN_GRAPHICS_TYPE_CGWEB:
     case VIR_DOMAIN_GRAPHICS_TYPE_VNC:
     case VIR_DOMAIN_GRAPHICS_TYPE_RDP:
     case VIR_DOMAIN_GRAPHICS_TYPE_DESKTOP:
